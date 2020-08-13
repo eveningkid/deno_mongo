@@ -25,7 +25,7 @@ jobs:
       - name: Install rust
         uses: hecrj/setup-rust-action@v1
         with:
-          rust-version: 1.43.1
+          rust-version: 1.44.0
       - name: Install clippy and rustfmt
         run: |
           rustup component add clippy
@@ -33,7 +33,7 @@ jobs:
       - name: Install Deno
         uses: denolib/setup-deno@master
         with:
-          deno-version: 1.0.5
+          deno-version: 1.2.2
       - name: Log versions
         run: |
           deno --version
@@ -78,12 +78,7 @@ jobs:
         uses: wbari/start-mongoDB@v0.2
         with:
           mongoDBVersion: 4.2
-      - name: Start MongoDB (Windows)
-        if: startsWith(matrix.os, 'windows')
-        run: |
-          choco install mongodb --version=4.2.0 --no-progress
-          "C:\Program Files\MongoDB\Server\4.2.0\bin\mongo.exe"
-
+      # MongoDB is auto started on Windows by default
       # Tests
       - name: Test Rust
         run: cargo test --release --locked --all-targets

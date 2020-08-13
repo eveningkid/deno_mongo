@@ -1,7 +1,9 @@
 mod aggregation;
+mod close;
 mod connect;
 mod count;
 mod delete;
+mod distinct;
 mod find;
 mod indexes;
 mod insert;
@@ -10,9 +12,11 @@ mod list_database_names;
 mod update;
 
 pub use aggregation::aggregate;
+pub use close::close;
 pub use connect::{connect_with_options, connect_with_uri};
 pub use count::count;
 pub use delete::delete;
+pub use distinct::distinct;
 pub use find::find;
 pub use indexes::create_indexes;
 pub use insert::{insert_many, insert_one};

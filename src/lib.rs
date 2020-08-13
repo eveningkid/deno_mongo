@@ -7,13 +7,21 @@ extern crate bson;
 extern crate mongodb;
 extern crate serde;
 
+use bson::Document;
 use deno_core::plugin_api::{Buf, Interface, Op, ZeroCopyBuf};
-use futures::FutureExt;
-use mongodb::Client;
+use futures::{Future, FutureExt};
+use mongodb::{options, Client};
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicUsize, Ordering};
-
-use std::{collections::HashMap, sync::Mutex, sync::MutexGuard};
+use std::{
+    clone::Clone,
+    collections::HashMap,
+    pin::Pin,
+    result::Result,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Mutex, MutexGuard,
+    },
+};
 
 mod command;
 mod util;
@@ -23,10 +31,11 @@ lazy_static! {
     static ref NEXT_CLIENT_ID: AtomicUsize = AtomicUsize::new(0);
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub enum CommandType {
     ConnectWithOptions,
     ConnectWithUri,
+    Close,
     ListDatabases,
     Find,
     ListCollectionNames,
@@ -37,18 +46,29 @@ pub enum CommandType {
     Update,
     Count,
     CreateIndexes,
+    Distinct,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct CommandArgs {
     command_type: CommandType,
     command_id: Option<usize>,
     client_id: Option<usize>,
 }
 
+#[derive(Clone)]
 pub struct Command {
     args: CommandArgs,
     data: Vec<ZeroCopyBuf>,
+}
+
+#[derive(Serialize)]
+pub struct SyncResult<T>
+where
+    T: Serialize,
+{
+    data: Option<T>,
+    error: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -57,7 +77,8 @@ where
     T: Serialize,
 {
     command_id: usize,
-    data: T,
+    data: Option<T>,
+    error: Option<String>,
 }
 
 impl Command {
@@ -86,21 +107,25 @@ pub(crate) fn get_client(client_id: usize) -> Client {
     map.get(&client_id).unwrap().clone()
 }
 
-fn op_command(_interface: &mut dyn Interface, data: &[u8], zero_copy: &mut [ZeroCopyBuf]) -> Op {
-    let args = CommandArgs::new(data);
-    let executor = match args.command_type {
-        CommandType::ConnectWithOptions => command::connect_with_options,
-        CommandType::ConnectWithUri => command::connect_with_uri,
-        CommandType::ListDatabases => command::list_database_names,
-        CommandType::ListCollectionNames => command::list_collection_names,
-        CommandType::Find => command::find,
-        CommandType::InsertOne => command::insert_one,
-        CommandType::InsertMany => command::insert_many,
-        CommandType::Delete => command::delete,
-        CommandType::Update => command::update,
-        CommandType::Aggregate => command::aggregate,
-        CommandType::CreateIndexes => command::create_indexes,
-        CommandType::Count => command::count,
-    };
-    executor(Command::new(args, zero_copy.to_vec()))
+fn op_command(_interface: &mut dyn Interface, zero_copy: &mut [ZeroCopyBuf]) -> Op {
+    let (first, rest) = zero_copy.split_first().unwrap();
+    let args = CommandArgs::new(first);
+    let args2 = args.clone();
+    let command = Command::new(args, rest.to_vec());
+    match args2.command_type {
+        CommandType::ConnectWithOptions => util::sync_op(command::connect_with_options, command),
+        CommandType::ConnectWithUri => util::sync_op(command::connect_with_uri, command),
+        CommandType::Close => util::sync_op(command::close, command),
+        CommandType::ListDatabases => util::async_op(command::list_database_names, command),
+        CommandType::ListCollectionNames => util::async_op(command::list_collection_names, command),
+        CommandType::Find => util::async_op(command::find, command),
+        CommandType::InsertOne => util::async_op(command::insert_one, command),
+        CommandType::InsertMany => util::async_op(command::insert_many, command),
+        CommandType::Delete => util::async_op(command::delete, command),
+        CommandType::Update => util::async_op(command::update, command),
+        CommandType::Aggregate => util::async_op(command::aggregate, command),
+        CommandType::CreateIndexes => util::async_op(command::create_indexes, command),
+        CommandType::Count => util::async_op(command::count, command),
+        CommandType::Distinct => util::async_op(command::distinct, command),
+    }
 }

@@ -1,8 +1,13 @@
 import { cargoBuild } from "./build.ts";
-import { init } from "./ts/util.ts";
+import {
+  assert,
+  assertEquals,
+  assertThrowsAsync,
+  exists,
+} from "./test.deps.ts";
 import { MongoClient } from "./ts/client.ts";
-import { assert, assertEquals, exists } from "./test.deps.ts";
 import { ObjectId } from "./ts/types.ts";
+import { init } from "./ts/util.ts";
 interface IUser {
   username: string;
   password: string;
@@ -12,9 +17,13 @@ interface IUser {
 const { test } = Deno;
 const dateNow = Date.now();
 
+let testClient: MongoClient | undefined;
+
 function getClient(): MongoClient {
+  if (testClient) return testClient;
   const client = new MongoClient();
   client.connectWithUri("mongodb://localhost:27017");
+  testClient = client;
   return client;
 }
 
@@ -65,6 +74,55 @@ test("testInsertOne", async () => {
   });
 });
 
+test("testUpsertOne", async () => {
+  const db = getClient().database("test");
+  const users = db.collection<IUser>("mongo_test_users");
+  const { upsertedId } = await users.updateOne(
+    {
+      _id: ObjectId("aaaaaaaaaaaaaaaaaaaaaaaa"),
+    },
+    {
+      username: "user1",
+      password: "pass1",
+      date: new Date(dateNow),
+    },
+    { upsert: true },
+  );
+
+  assert(upsertedId);
+  assertEquals(Object.keys(upsertedId), ["$oid"]);
+
+  const user1 = await users.findOne({
+    _id: ObjectId(upsertedId.$oid),
+  });
+
+  assertEquals(user1, {
+    _id: upsertedId,
+    username: "user1",
+    password: "pass1",
+    date: new Date(dateNow),
+  });
+});
+
+test("testInsertOneTwice", async () => {
+  const db = getClient().database("test");
+  const users = db.collection<IUser>("mongo_test_users_2");
+  const insertId: ObjectId = await users.insertOne({
+    _id: ObjectId("aaaaaaaaaaaaaaaaaaaaaaaa"),
+    username: "user1",
+  });
+
+  await assertThrowsAsync(
+    () =>
+      users.insertOne({
+        _id: ObjectId("aaaaaaaaaaaaaaaaaaaaaaaa"),
+        username: "user1",
+      }) as any,
+    undefined,
+    "E11000",
+  );
+});
+
 test("testFindOne", async () => {
   const db = getClient().database("test");
   const users = db.collection<IUser>("mongo_test_users");
@@ -72,7 +130,8 @@ test("testFindOne", async () => {
   assert(user1 instanceof Object);
   assertEquals(Object.keys(user1), ["_id", "username", "password", "date"]);
 
-  const findNull = await users.findOne({ test: 1 });
+  const query = { test: 1 } as any;
+  const findNull = await users.findOne(query);
   assertEquals(findNull, null);
 });
 
@@ -105,6 +164,24 @@ test("testInsertMany", async () => {
   ]);
 
   assertEquals(insertIds.length, 2);
+});
+
+test("testFindOr", async () => {
+  const db = getClient().database("test");
+  const users = db.collection<IUser>("mongo_test_users");
+  const user1 = await users.find({
+    $or: [
+      {
+        password: "pass1",
+      },
+      {
+        password: "pass2",
+      },
+    ],
+  });
+
+  assert(user1 instanceof Array);
+  assertEquals(user1.length, 3);
 });
 
 test("testFind", async () => {
@@ -155,6 +232,13 @@ test("testDeleteMany", async () => {
   assertEquals(deleteCount, 2);
 });
 
+test("testDistinct", async () => {
+  const db = getClient().database("test");
+  const users = db.collection<IUser>("mongo_test_users");
+  const user1 = await users.distinct("username", {});
+  assertEquals(user1, ["user1"]);
+});
+
 // TODO mongdb_rust official library has not implemented this feature
 // test("testCreateIndexes", async () => {
 //   const db = getClient().database("test");
@@ -164,6 +248,12 @@ test("testDeleteMany", async () => {
 //   ]);
 //   console.log(result);
 // });
+
+test("testClose", async () => {
+  const result = getClient().close();
+  assertEquals(result, { success: true });
+  testClient = undefined;
+});
 
 if (await exists(".deno_plugins")) {
   await Deno.remove(".deno_plugins", { recursive: true });

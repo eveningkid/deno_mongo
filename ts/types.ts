@@ -1,6 +1,7 @@
 export enum CommandType {
   ConnectWithUri = "ConnectWithUri",
   ConnectWithOptions = "ConnectWithOptions",
+  Close = "Close",
   ListDatabases = "ListDatabases",
   ListCollectionNames = "ListCollectionNames",
   Find = "Find",
@@ -11,6 +12,7 @@ export enum CommandType {
   Aggregate = "Aggregate",
   Count = "Count",
   CreateIndexes = "CreateIndexes",
+  Distinct = "Distinct",
 }
 
 export interface ObjectId {
@@ -28,4 +30,10 @@ export interface FindOptions {
   findOne?: boolean;
   skip?: number;
   limit?: number;
+}
+
+export interface UpdateOptions {
+  arrayFilters?: object[];
+  bypassDocumentValidation?: boolean;
+  upsert?: boolean;
 }
