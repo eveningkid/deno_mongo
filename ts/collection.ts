@@ -1,8 +1,14 @@
-import { MongoClient } from "./client.ts";
-import { UpdateResult } from "./result.ts";
-import { CommandType, FindOptions, ObjectId, UpdateOptions } from "./types.ts";
+import type { MongoClient } from "./client.ts";
+import type { UpdateResult } from "./result.ts";
+import {
+  ChainBuilderPromise,
+  CommandType,
+  FindOptions,
+  ObjectId,
+  UpdateOptions,
+} from "./types.ts";
 import { convert, parse } from "./type_convert.ts";
-import { dispatchAsync, encode } from "./util.ts";
+import { dispatch, dispatchAsync, encode } from "./util.ts";
 
 export interface WithID {
   _id: ObjectId;
@@ -67,13 +73,13 @@ export type QuerySelector<T> = {
   $ne?: T;
   $nin?: T[];
   // Logical
-  $not?: T extends string ? (QuerySelector<T> | RegExp) : FilterType<T>;
+  $not?: T extends string ? QuerySelector<T> | RegExp : FilterType<T>;
   /** https://docs.mongodb.com/manual/reference/operator/query/and/#op._S_and */
-  $and?: T extends string ? (QuerySelector<T> | RegExp) : FilterType<T>[];
+  $and?: T extends string ? QuerySelector<T> | RegExp : FilterType<T>[];
   /** https://docs.mongodb.com/manual/reference/operator/query/nor/#op._S_nor */
-  $nor?: T extends string ? (QuerySelector<T> | RegExp) : FilterType<T>[];
+  $nor?: T extends string ? QuerySelector<T> | RegExp : FilterType<T>[];
   /** https://docs.mongodb.com/manual/reference/operator/query/or/#op._S_or */
-  $or?: T extends string ? (QuerySelector<T> | RegExp) : FilterType<T>[];
+  $or?: T extends string ? QuerySelector<T> | RegExp : FilterType<T>[];
 
   /** https://docs.mongodb.com/manual/reference/operator/query/comment/#op._S_comment */
   $comment?: string;
@@ -89,7 +95,7 @@ export type QuerySelector<T> = {
   $expr?: any;
   $jsonSchema?: any;
   $mod?: T extends number ? [number, number] : never;
-  $regex?: T extends string ? (RegExp | string) : never;
+  $regex?: T extends string ? RegExp | string : never;
   /** https://docs.mongodb.com/manual/reference/operator/query/text */
   $text?: {
     $search: string;
@@ -190,17 +196,37 @@ export class Collection<T extends any> {
     return count as number;
   }
 
-  public async findOne(
-    filter?: FilterType<T>,
-  ): Promise<(T & WithID) | null> {
+  public async findOne(filter?: FilterType<T>): Promise<(T & WithID) | null> {
     return parse(await this._find(filter, { findOne: true }))[0] ?? null;
   }
 
-  public async find(
-    filter?: FilterType<T>,
-    options?: FindOptions,
-  ): Promise<Array<T & WithID>> {
-    return parse(await this._find(filter, { findOne: false, ...options }));
+  public find(filter?: FilterType<T>, options?: FindOptions) {
+    const self = this;
+    return new (class extends ChainBuilderPromise<T[]> {
+      private maxQueryLimit?: number;
+      private skipDocCount?: number;
+
+      async _excutor(): Promise<T[]> {
+        return parse(
+          await self._find(filter, {
+            findOne: false,
+            limit: this.maxQueryLimit,
+            skip: this.skipDocCount,
+            ...options,
+          }),
+        );
+      }
+
+      public skip(skipCount: number): Omit<this, "_excutor"> {
+        this.skipDocCount = skipCount;
+        return this;
+      }
+
+      public limit(limitCount: number): Omit<this, "_excutor"> {
+        this.maxQueryLimit = limitCount;
+        return this;
+      }
+    })();
   }
 
   public async insertOne(doc: DocumentType<T>): Promise<ObjectId> {
@@ -220,9 +246,7 @@ export class Collection<T extends any> {
     return _id as ObjectId;
   }
 
-  public async insertMany(
-    docs: Array<DocumentType<T>>,
-  ): Promise<ObjectId[]> {
+  public async insertMany(docs: Array<DocumentType<T>>): Promise<ObjectId[]> {
     const _ids = await dispatchAsync(
       {
         command_type: CommandType.InsertMany,
@@ -360,7 +384,6 @@ export class Collection<T extends any> {
 
   public async distinct(
     fieldName: string,
-    filter?: FilterType<T>,
   ): Promise<Array<T & WithID>> {
     const docs = await dispatchAsync(
       {
@@ -376,5 +399,18 @@ export class Collection<T extends any> {
       ),
     );
     return parse(docs) as Array<T & WithID>;
+  }
+
+  public drop() {
+    dispatch(
+      {
+        command_type: CommandType.DropConnection,
+        client_id: this.client.clientId,
+      },
+      encode(JSON.stringify({
+        dbName: this.dbName,
+        collectionName: this.collectionName,
+      })),
+    );
   }
 }

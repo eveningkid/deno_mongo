@@ -13,7 +13,7 @@ For now, denodb will use this fork as it allows lazy-loading.
 ## Links
 
 - [Guides]() TODO
-- [Examples]() TODO
+- [Examples](./EXAMPLES.md)
 - [Benchmarks]() TODO
 
 ## Important
@@ -21,13 +21,13 @@ For now, denodb will use this fork as it allows lazy-loading.
 Because the plug-in API of Deno is still in an unstable state, the `--unstable` flag needs to be used. The minimum permissions required to run deno_mongo should be
 
 ```sh
-deno run --allow-net --allow-write --allow-read --allow-plugin --unstable xxx.ts
+deno run --allow-net --allow-write --allow-read --allow-plugin --allow-env --unstable xxx.ts
 ```
 
 ## Examples
 
 ```ts
-import { MongoClient } from 'https://deno.land/x/mongo@v0.10.0/mod.ts';
+import { MongoClient } from "https://deno.land/x/mongo@v0.13.0/mod.ts";
 
 const client = new MongoClient();
 client.connectWithUri('mongodb://localhost:27017');
@@ -96,5 +96,11 @@ const { matchedCount, modifiedCount, upsertedId } = await users.updateMany(
 const deleteCount = await users.deleteOne({ _id: insertId });
 
 // deleteMany
-const deleteCount2 = await users.deleteMany({ username: 'test' });
+const deleteCount2 = await users.deleteMany({ username: "test" });
+
+// Skip
+const skipTwo = await users.skip(2).find();
+
+// Limit
+const featuredUser = await users.limit(5).find();
 ```
