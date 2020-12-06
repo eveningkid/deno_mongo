@@ -2,6 +2,8 @@
 
 [Related to that issue](https://github.com/manyuanrong/deno_mongo/issues/55).
 
+[Since the issue was fixed](https://github.com/eveningkid/denodb/pull/161), this fork is no longer necessary.
+
 For now, denodb will use this fork as it allows lazy-loading.
 
 [![tag](https://img.shields.io/github/tag/manyuanrong/deno_mongo.svg)](https://github.com/manyuanrong/deno_mongo/releases)
